@@ -48,7 +48,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 log = logging.getLogger("lotus.bridge")
 

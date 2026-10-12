@@ -1,6 +1,6 @@
 # udi-lotuslantern-ble — Lotus Lantern node server for eisy (PG3x)
 
-Version 0.0.2
+Version 0.0.3
 
 Control **BLEDOM / ELK-BLEDOM** Bluetooth LED strips — the ones set up with the
 **Lotus Lantern** phone app — from an eisy or Polisy: on/off, dimming, RGB
@@ -60,9 +60,15 @@ sudo python3 tools/eisy_ble_probe.py --mac BE:60:65:xx:xx:xx --blink
 **SUCCESS**, use `transport=native` and the `addr_type` it reports. If not,
 send the output back — or use the bridge.
 
-If the adapter isn't found, enable UDI's Bluetooth service, or run
-`sudo service bluetooth start ubt0`, and check `ngctl list` for the HCI node
-name (normally `ubt0hci`; set `hci_node` if it differs).
+If the adapter isn't found, check `ngctl list` for the HCI node name
+(normally `ubt0hci`; set `hci_node` if it differs). If no `ubt0hci` node is
+listed, **reboot the eisy**. Do not run `service bluetooth restart`: the eisy
+sets Bluetooth up its own way at boot, and FreeBSD's standard script fails on
+it and removes the stack.
+
+If a connection attempt ever gets stuck ("Command disallowed" from
+`hccontrol le_connect`), clear it with
+`sudo python3 tools/eisy_ble_probe.py --cancel`.
 
 Discovery from the admin console runs `hccontrol le_scan`, which needs root.
 If it can't run from PG3, add strips by MAC instead (see below).

@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lotus_led.protocol import Pkt  # noqa: E402
 from transports import TransportError  # noqa: E402
 from transports.freebsd_ble import (  # noqa: E402
-    AttLink, FreeBSDBleTransport, BDADDR_LE_PUBLIC, BDADDR_LE_RANDOM, le_host_supported,
+    AttLink, FreeBSDBleTransport, BDADDR_LE_PUBLIC, BDADDR_LE_RANDOM, cancel_le_connect,
+    le_host_supported,
 )
 
 
@@ -41,6 +42,8 @@ def main():
     ap.add_argument("--mac", help="strip MAC to connect to")
     ap.add_argument("--blink", action="store_true", help="cycle colours to prove writes work")
     ap.add_argument("--scan-seconds", type=float, default=15)
+    ap.add_argument("--cancel", action="store_true",
+                    help="only cancel a stuck LE connection attempt, then exit")
     args = ap.parse_args()
 
     print("== System")
@@ -48,7 +51,18 @@ def main():
     print("running as root" if os.geteuid() == 0 else "NOT root -- scanning will probably fail; use sudo")
 
     print("\n== Bluetooth netgraph nodes")
-    print(run(["ngctl", "list"]) if shutil.which("ngctl") else "ngctl not found")
+    nodes = run(["ngctl", "list"]) if shutil.which("ngctl") else "ngctl not found"
+    print(nodes)
+    if f"Name: {args.node} " not in nodes:
+        print(f"\nThe HCI node '{args.node}' is missing, so the Bluetooth stack is not set up."
+              "\nReboot the eisy to restore it (don't use 'service bluetooth restart' -- the eisy"
+              "\nsets Bluetooth up its own way at boot), then run this again.")
+        return
+
+    if args.cancel:
+        err = cancel_le_connect(args.node)
+        print("\nCancelled any pending LE connection." if not err else f"\nCancel failed: {err}")
+        return
 
     hcc = shutil.which("hccontrol") or "/usr/sbin/hccontrol"
     print(f"\n== Adapter {args.node}")
@@ -81,8 +95,10 @@ def main():
         return
 
     print(f"\n== Connect to {args.mac}")
+    err = cancel_le_connect(args.node)  # clear anything left over from earlier attempts
+    print("  cleared any stuck connection attempt" if not err else f"  could not clear old attempts: {err}")
     for name, kind in (("public", BDADDR_LE_PUBLIC), ("random", BDADDR_LE_RANDOM)):
-        link = AttLink(args.mac.upper(), kind)
+        link = AttLink(args.mac.upper(), kind, args.node)
         try:
             link.connect()
             handle = link.discover_write_handle()

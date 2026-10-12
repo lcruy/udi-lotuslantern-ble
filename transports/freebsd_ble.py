@@ -38,7 +38,9 @@ from .base import TransportError
 
 AF_BLUETOOTH = 36
 SOCK_SEQPACKET = 5
+BLUETOOTH_PROTO_HCI = 134
 BLUETOOTH_PROTO_L2CAP = 135
+SOCK_RAW = 3
 NG_L2CAP_ATT_CID = 0x0004
 BDADDR_LE_PUBLIC = 1
 BDADDR_LE_RANDOM = 2
@@ -65,7 +67,7 @@ GATT_CHARACTERISTIC_DECL = 0x2803
 
 WRITE_UUID16 = 0xFFF3
 MIN_FRAME_INTERVAL = 0.05     # the firmware drops frames above ~20/s
-CONNECT_TIMEOUT = 12.0
+CONNECT_TIMEOUT = 20.0
 ATT_TIMEOUT = 5.0
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
@@ -121,14 +123,63 @@ def parse_read_by_type(pdu: bytes) -> List[Tuple[int, int, int, bytes]]:
     return out
 
 
+# ── raw HCI commands ─────────────────────────────────────────────────────────
+
+HCI_CMD_PKT = 0x01
+OGF_LE = 0x08
+OCF_LE_CREATE_CONNECTION_CANCEL = 0x000E
+
+
+def hci_command_packet(ogf: int, ocf: int, params: bytes = b"") -> bytes:
+    opcode = (ogf << 10) | ocf
+    return struct.pack("<BHB", HCI_CMD_PKT, opcode, len(params)) + params
+
+
+def hci_send_command(hci_node: str, ogf: int, ocf: int, params: bytes = b"") -> Optional[str]:
+    """Send one HCI command on a raw socket; returns an error string or None.
+
+    hccontrol has no command for some things we need (cancelling a pending
+    LE connection), so this speaks to the HCI node directly, the way
+    hccontrol itself does: bind + connect a raw socket to the node by name,
+    then write the command packet. Needs root. We do not wait for the reply.
+    """
+    libc = _libc()
+    libc.bind.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    fd = libc.socket(AF_BLUETOOTH, SOCK_RAW, BLUETOOTH_PROTO_HCI)
+    if fd < 0:
+        return f"raw HCI socket: {os.strerror(ctypes.get_errno())}"
+    try:
+        addr = struct.pack("BB32s", 34, AF_BLUETOOTH, hci_node.encode())
+        if libc.bind(fd, addr, len(addr)) != 0 or libc.connect(fd, addr, len(addr)) != 0:
+            return f"raw HCI socket to {hci_node}: {os.strerror(ctypes.get_errno())}"
+        os.write(fd, hci_command_packet(ogf, ocf, params))
+        time.sleep(0.2)  # let the controller act before the socket goes away
+        return None
+    except OSError as exc:
+        return f"HCI command failed: {exc.strerror}"
+    finally:
+        os.close(fd)
+
+
+def cancel_le_connect(hci_node: str) -> Optional[str]:
+    """Tell the controller to stop trying to make an LE connection.
+
+    Without this, a connect that times out on our side keeps running in the
+    controller, and every later attempt -- ours or hccontrol's -- fails with
+    "Command disallowed". Harmless when nothing is pending.
+    """
+    return hci_send_command(hci_node, OGF_LE, OCF_LE_CREATE_CONNECTION_CANCEL)
+
+
 # ── one connection ────────────────────────────────────────────────────────────
 
 class AttLink:
     """An LE ATT channel to one device, as a raw file descriptor."""
 
-    def __init__(self, mac: str, addr_type: int):
+    def __init__(self, mac: str, addr_type: int, hci_node: str = "ubt0hci"):
         self.mac = mac
         self.addr_type = addr_type
+        self.hci_node = hci_node
         self.fd: Optional[int] = None
         self.write_handle: Optional[int] = None
         self.last_write = 0.0
@@ -143,7 +194,7 @@ class AttLink:
             err = ctypes.get_errno()
             raise TransportError(
                 f"cannot open a Bluetooth L2CAP socket ({os.strerror(err)}). Is the "
-                "Bluetooth service running on the eisy (service bluetooth status ubt0)?"
+                "Bluetooth stack up on the eisy ('ngctl list' should show ubt0hci)? If not, reboot the eisy."
             )
         try:
             flags = fcntl.fcntl(fd, fcntl.F_GETFL)
@@ -156,6 +207,7 @@ class AttLink:
                     raise TransportError(self._explain(err))
                 _, writable, _ = select.select([], [fd], [], timeout)
                 if not writable:
+                    cancel_le_connect(self.hci_node)
                     raise TransportError(
                         f"{self.mac} did not answer within {timeout:.0f}s -- powered, in "
                         "range, and not connected to the phone app?"
@@ -174,8 +226,8 @@ class AttLink:
 
     def _explain(self, err: int) -> str:
         if err == errno.EHOSTUNREACH:
-            return ("no Bluetooth adapter is attached to the stack -- start it with "
-                    "'service bluetooth start ubt0' (or enable UDI's Bluetooth service)")
+            return ("no Bluetooth adapter is attached to the stack -- restore it with "
+                    "a reboot of the eisy (not 'service bluetooth restart', which fails on the eisy)")
         if err in (errno.ETIMEDOUT, errno.ECONNREFUSED):
             return f"{self.mac} refused or timed out ({os.strerror(err)})"
         return f"connect to {self.mac} failed: {os.strerror(err)}"
@@ -359,6 +411,7 @@ class FreeBSDBleTransport:
         self._guard = threading.Lock()
         self._stop = threading.Event()
         self.le_problems = enable_le(self.hci_node)
+        cancel_le_connect(self.hci_node)  # clear any attempt left from a previous run
         threading.Thread(target=self._reaper, name="ble-reaper", daemon=True).start()
 
     # -- scan ----------------------------------------------------------------
@@ -456,7 +509,7 @@ class FreeBSDBleTransport:
         types = [previous.addr_type] if previous and previous.write_handle else self._types_to_try()
         errors = []
         for addr_type in types:
-            link = AttLink(mac, addr_type)
+            link = AttLink(mac, addr_type, self.hci_node)
             try:
                 link.connect()
                 if previous and previous.write_handle and previous.addr_type == addr_type:

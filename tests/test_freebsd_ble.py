@@ -40,6 +40,45 @@ def test_uuid16():
     assert uuid16_of(bytes(16)) is None
 
 
+def test_le_cancel_packet():
+    from transports.freebsd_ble import hci_command_packet, OGF_LE, OCF_LE_CREATE_CONNECTION_CANCEL
+    assert hci_command_packet(OGF_LE, OCF_LE_CREATE_CONNECTION_CANCEL) == bytes([0x01, 0x0E, 0x20, 0x00])
+    assert struct.calcsize("BB32s") == 34
+
+
+def test_connect_timeout_cancels():
+    import transports.freebsd_ble as fb
+    calls = []
+    real = fb.cancel_le_connect
+    fb.cancel_le_connect = lambda node: calls.append(node)
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    class FakeLibc:
+        def socket(self, *args):
+            return os.dup(a.fileno())
+        def connect(self, fd, addr, n):
+            import ctypes
+            ctypes.set_errno(36)  # EINPROGRESS on FreeBSD
+            return -1
+    real_libc, real_select = fb._libc, fb.select.select
+    fb._libc = lambda: FakeLibc()
+    fb.select.select = lambda r, w, x, t: ([], [], [])
+    real_einprogress = fb.errno.EINPROGRESS
+    fb.errno.EINPROGRESS = 36
+    try:
+        link = fb.AttLink(MAC, BDADDR_LE_PUBLIC, "ubt0hci")
+        try:
+            link.connect(timeout=0.1)
+            assert False, "should time out"
+        except fb.TransportError as exc:
+            assert "did not answer" in str(exc)
+        assert calls == ["ubt0hci"]
+    finally:
+        fb.cancel_le_connect, fb._libc, fb.select.select = real, real_libc, real_select
+        fb.errno.EINPROGRESS = real_einprogress
+        a.close(); b.close()
+
+
 def test_parse_read_by_type():
     pdu = bytes([0x09, 7]) + struct.pack("<HBHH", 0x10, 0x0C, 0x11, 0xFFF3) + struct.pack("<HBHH", 0x12, 0x10, 0x13, 0xFFF4)
     assert parse_read_by_type(pdu) == [(0x10, 0x0C, 0x11, b"\xf3\xff"), (0x12, 0x10, 0x13, b"\xf4\xff")]
@@ -128,6 +167,8 @@ esac
     os.environ["PATH"] = d + os.pathsep + old_path
     real_euid = os.geteuid
     os.geteuid = lambda: 0
+    real_cancel = fb.cancel_le_connect
+    fb.cancel_le_connect = lambda node: None
     try:
         t = fb.FreeBSDBleTransport(hci_node="ubt0hci")
         assert t.le_problems == []
@@ -143,6 +184,7 @@ esac
     finally:
         os.environ["PATH"] = old_path
         os.geteuid = real_euid
+        fb.cancel_le_connect = real_cancel
 
 
 if __name__ == "__main__":

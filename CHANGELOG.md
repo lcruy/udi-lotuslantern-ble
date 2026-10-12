@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.3 — 2026-10-11
+
+- **Stuck connection attempts are now cancelled.** When a connect timed out,
+  the adapter kept trying in the background, so every later attempt failed
+  with "Command disallowed". The transport now sends HCI LE Create
+  Connection Cancel on timeout and at start-up (raw HCI socket; hccontrol has
+  no command for it).
+- Connect timeout raised from 12 s to 20 s.
+- Probe tool: clears stuck attempts before connecting, `--cancel` to clear
+  one on its own, and stops with a "reboot the eisy" message if the HCI node
+  is missing.
+- Removed advice to run `service bluetooth restart`: it fails on the eisy
+  and removes the Bluetooth stack until reboot.
+
 ## 0.0.2 — 2026-10-11
 
 Fixes from the first probe run on a real eisy (FreeBSD 14.3, Intel BT 5.2).
