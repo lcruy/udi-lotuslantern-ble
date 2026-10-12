@@ -22,7 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lotus_led.protocol import Pkt  # noqa: E402
 from transports import TransportError  # noqa: E402
-from transports.freebsd_ble import AttLink, FreeBSDBleTransport, BDADDR_LE_PUBLIC, BDADDR_LE_RANDOM  # noqa: E402
+from transports.freebsd_ble import (  # noqa: E402
+    AttLink, FreeBSDBleTransport, BDADDR_LE_PUBLIC, BDADDR_LE_RANDOM, le_host_supported,
+)
 
 
 def run(cmd):
@@ -38,7 +40,7 @@ def main():
     ap.add_argument("--node", default="ubt0hci", help="HCI node (see 'ngctl list')")
     ap.add_argument("--mac", help="strip MAC to connect to")
     ap.add_argument("--blink", action="store_true", help="cycle colours to prove writes work")
-    ap.add_argument("--scan-seconds", type=float, default=10)
+    ap.add_argument("--scan-seconds", type=float, default=15)
     args = ap.parse_args()
 
     print("== System")
@@ -54,14 +56,23 @@ def main():
     print(run([hcc, "-n", args.node, "read_le_host_support"]))
     print(run([hcc, "-n", args.node, "le_read_local_supported_features"]))
 
+    print("\n== Enabling LE on the host (write_le_host_support 1 0, le_enable enable)")
+    print(f"  before: LE host support = {le_host_supported(args.node)}")
     transport = FreeBSDBleTransport(hci_node=args.node)
-    print(f"\n== LE scan ({args.scan_seconds:.0f}s, BLEDOM-looking devices only)")
+    for problem in transport.le_problems:
+        print(f"  problem: {problem}")
+    print(f"  after:  LE host support = {le_host_supported(args.node)}")
+
+    print(f"\n== LE scan ({args.scan_seconds:.0f}s, every device heard)")
     try:
-        found = transport.scan(args.scan_seconds)
-        for d in found:
-            print(f"  {d['name'] or '(no name)':20} {d['address']}  ({d['addr_type'] or '?'})")
+        found = transport.scan(args.scan_seconds, all_devices=True)
+        from lotus_led.protocol import DEVICE_NAME_PATTERNS, KNOWN_MAC_PREFIX
+        for d in sorted(found, key=lambda x: x["name"] == ""):
+            strip = any(p in d["name"].upper() for p in DEVICE_NAME_PATTERNS) or d["address"].startswith(KNOWN_MAC_PREFIX)
+            print(f"  {'*' if strip else ' '} {d['name'] or '(no name)':22} {d['address']}  ({d['addr_type'] or '?'})")
+        print(f"  {len(found)} device(s) heard; * = looks like a Lotus Lantern / BLEDOM strip")
         if not found:
-            print("  none found")
+            print("  Nothing at all was heard -- send this output back.")
     except TransportError as exc:
         print(f"  scan failed: {exc}")
 

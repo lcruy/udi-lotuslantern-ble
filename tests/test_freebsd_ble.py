@@ -105,6 +105,46 @@ def test_att_discovery_and_write():
     b.close()
 
 
+def test_enable_le_and_timed_out_scan_keeps_results(tmp_path=None):
+    """Fake hccontrol: le_scan prints one strip then hangs, like the real one."""
+    import tempfile
+    import time as _t
+    import transports.freebsd_ble as fb
+
+    d = tempfile.mkdtemp()
+    log = os.path.join(d, "calls.log")
+    script = os.path.join(d, "hccontrol")
+    with open(script, "w") as f:
+        f.write(f"""#!/bin/sh
+printf "%s\\n" "$*" >> {log}
+case "$*" in
+  *le_scan*) printf 'Scan 1\\n\\tBD_ADDR be:60:65:aa:bb:cc \\n\\tAddress type: Public\\n\\tComplete local name: ELK-BLEDOM\\n'; sleep 30;;
+  *read_le_host_support*) echo "LE Host support: 01";;
+  *le_enable*) echo "LE enabled";;
+esac
+""")
+    os.chmod(script, 0o755)
+    old_path = os.environ["PATH"]
+    os.environ["PATH"] = d + os.pathsep + old_path
+    real_euid = os.geteuid
+    os.geteuid = lambda: 0
+    try:
+        t = fb.FreeBSDBleTransport(hci_node="ubt0hci")
+        assert t.le_problems == []
+        start = _t.time()
+        found = t.scan(2)
+        assert _t.time() - start < 10
+        assert [x["address"] for x in found] == ["BE:60:65:AA:BB:CC"]
+        assert fb.le_host_supported("ubt0hci") is True
+        calls = open(log).read()
+        assert "write_le_host_support 1 0" in calls and "le_enable enable" in calls
+        assert "le_set_scan_enable disable" in calls
+        t.close()
+    finally:
+        os.environ["PATH"] = old_path
+        os.geteuid = real_euid
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -24,6 +24,7 @@ import fcntl
 import os
 import re
 import select
+import signal
 import shutil
 import struct
 import subprocess
@@ -274,6 +275,53 @@ def _hccontrol_cmd() -> List[str]:
     return [sudo, "-n", exe] if sudo else [exe]
 
 
+def _line_buffered(cmd: List[str]) -> List[str]:
+    """Make hccontrol flush each line.
+
+    Writing to a pipe, hccontrol's stdout is block-buffered, so a scan cut off
+    by our timeout used to lose everything it had found. FreeBSD ships
+    stdbuf(1) in base for exactly this.
+    """
+    stdbuf = shutil.which("stdbuf") or ("/usr/bin/stdbuf" if os.path.exists("/usr/bin/stdbuf") else None)
+    return [stdbuf, "-o", "L"] + cmd if stdbuf else cmd
+
+
+def enable_le(hci_node: str) -> List[str]:
+    """Switch LE on in the host controller; returns any problems found.
+
+    Out of the box the eisy's adapter reports "LE Host support: 00" and its
+    event masks leave out LE events, so advertising reports and LE connection
+    events never reach the stack -- scans come back empty and connects hang.
+    These two settings are lost on adapter reset or reboot, so this runs every
+    time the transport starts. Both are additive: classic Bluetooth (UDI's
+    audio service) keeps working.
+    """
+    base = _hccontrol_cmd() + ["-n", hci_node]
+    problems = []
+    for args in (["write_le_host_support", "1", "0"], ["le_enable", "enable"]):
+        try:
+            p = subprocess.run(base + args, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            problems.append(f"{args[0]}: {exc}")
+            continue
+        text = (p.stdout + p.stderr).strip()
+        if p.returncode != 0 or "Status:" in text or "ermission" in text:
+            problems.append(f"{args[0]}: {text or 'exit ' + str(p.returncode)}")
+    return problems
+
+
+def le_host_supported(hci_node: str) -> Optional[bool]:
+    try:
+        p = subprocess.run(_hccontrol_cmd() + ["-n", hci_node, "read_le_host_support"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"LE Host support:\s*(\S+)", p.stdout)
+    if not m:
+        return None
+    return m.group(1) not in ("00", "0", "0x00")
+
+
 def parse_le_scan(text: str) -> List[dict]:
     """Parse ``hccontrol le_scan -v`` output into name/address records."""
     found: Dict[str, dict] = {}
@@ -310,32 +358,47 @@ class FreeBSDBleTransport:
         self._locks: Dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
         self._stop = threading.Event()
+        self.le_problems = enable_le(self.hci_node)
         threading.Thread(target=self._reaper, name="ble-reaper", daemon=True).start()
 
     # -- scan ----------------------------------------------------------------
 
-    def scan(self, timeout: float = 8.0) -> List[dict]:
+    def scan(self, timeout: float = 8.0, all_devices: bool = False) -> List[dict]:
+        if self.le_problems:
+            # Try again: the adapter may have been reset since we started.
+            self.le_problems = enable_le(self.hci_node)
         base = _hccontrol_cmd() + ["-n", self.hci_node]
         # le_scan counts HCI events rather than seconds; ask for plenty and
-        # bound it with a wall-clock timeout.
+        # stop it ourselves after `timeout` seconds.
         try:
-            proc = subprocess.run(base + ["le_scan", "-v", "-n", "200"], capture_output=True,
-                                  text=True, timeout=max(3.0, float(timeout)))
-            out = proc.stdout
-            if proc.returncode != 0 and not out:
-                raise TransportError(
-                    "hccontrol le_scan failed: " + (proc.stderr.strip() or f"exit {proc.returncode}")
-                    + ". Scanning needs root; add the strip by MAC address instead "
-                    "(custom parameter key = MAC, value = name)."
-                )
-        except subprocess.TimeoutExpired as exc:
-            out = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            proc = subprocess.Popen(_line_buffered(base + ["le_scan", "-v", "-n", "1000"]),
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    start_new_session=True)
         except FileNotFoundError as exc:
             raise TransportError("hccontrol not found on this system") from exc
+        try:
+            out, err = proc.communicate(timeout=max(3.0, float(timeout)))
+        except subprocess.TimeoutExpired:
+            # Stop the whole group (sudo / stdbuf / hccontrol), or a surviving
+            # child keeps the pipe open and we wait forever.
+            self._signal_group(proc, signal.SIGTERM)
+            try:
+                out, err = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._signal_group(proc, signal.SIGKILL)
+                out, err = proc.communicate()
         finally:
-            # A killed le_scan leaves the controller scanning; switch it off.
+            # A stopped le_scan leaves the controller scanning; switch it off.
             subprocess.run(base + ["le_set_scan_enable", "disable"], capture_output=True, timeout=10)
-        devices = parse_le_scan(out)
+        if not out.strip() and err.strip():
+            raise TransportError(
+                "hccontrol le_scan failed: " + err.strip()
+                + ". Scanning needs root; add the strip by MAC address instead "
+                "(custom parameter key = MAC, value = name)."
+            )
+        devices = parse_le_scan(out or "")
+        if all_devices:
+            return devices
         from lotus_led.protocol import DEVICE_NAME_PATTERNS, KNOWN_MAC_PREFIX
 
         def is_strip(d):
@@ -343,6 +406,16 @@ class FreeBSDBleTransport:
             return any(p in name for p in DEVICE_NAME_PATTERNS) or d["address"].startswith(KNOWN_MAC_PREFIX)
 
         return [d for d in devices if is_strip(d)]
+
+    @staticmethod
+    def _signal_group(proc, sig) -> None:
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            try:
+                proc.send_signal(sig)
+            except ProcessLookupError:
+                pass
 
     # -- write ---------------------------------------------------------------
 
@@ -377,6 +450,8 @@ class FreeBSDBleTransport:
             raise TransportError(str(last_error))
 
     def _open(self, mac: str, previous: Optional[AttLink]) -> AttLink:
+        if self.le_problems:
+            self.le_problems = enable_le(self.hci_node)
         # Reuse the address type and handle that worked before.
         types = [previous.addr_type] if previous and previous.write_handle else self._types_to_try()
         errors = []

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.2 — 2026-10-11
+
+Fixes from the first probe run on a real eisy (FreeBSD 14.3, Intel BT 5.2).
+
+- **LE is now switched on before use.** The eisy's adapter starts with
+  "LE Host support: 00" and no LE events enabled, so scans heard nothing and
+  connects could not complete. The native transport now runs
+  `hccontrol write_le_host_support 1 0` and `hccontrol le_enable enable` at
+  start-up (and again if they failed). Classic Bluetooth is unaffected.
+- **Scan results are no longer lost on timeout.** hccontrol's output is
+  line-buffered with stdbuf(1), and the whole process group is stopped when
+  the scan time runs out.
+- The probe tool shows LE host support before/after, and lists every LE
+  device it hears, marking the ones that look like Lotus Lantern strips.
+- A notice appears in PG3 if LE could not be switched on.
+
 ## 0.0.1 — 2026-10-11
 
 First release, renamed from the working name `udi-lotus-pg3`.

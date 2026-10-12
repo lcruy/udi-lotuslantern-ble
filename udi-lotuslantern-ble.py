@@ -8,7 +8,7 @@ import udi_interface
 from nodes import LotusController, LotusStrip
 
 LOGGER = udi_interface.LOGGER
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 
 if __name__ == "__main__":
     polyglot = None

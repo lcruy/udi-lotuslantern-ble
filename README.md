@@ -1,6 +1,6 @@
 # udi-lotuslantern-ble — Lotus Lantern node server for eisy (PG3x)
 
-Version 0.0.1
+Version 0.0.2
 
 Control **BLEDOM / ELK-BLEDOM** Bluetooth LED strips — the ones set up with the
 **Lotus Lantern** phone app — from an eisy or Polisy: on/off, dimming, RGB

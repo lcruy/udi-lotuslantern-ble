@@ -131,6 +131,12 @@ class LotusController(udi_interface.Node):
                     addr_type=self.Parameters["addr_type"] or "auto",
                 )
                 self.kind = kind
+                for problem in getattr(self.transport, "le_problems", []) or []:
+                    LOGGER.warning("Bluetooth LE setup: %s", problem)
+                    self.Notices["le"] = (
+                        "Could not switch on Bluetooth LE on the eisy (" + problem + "). "
+                        "Scanning and connecting need it; run tools/eisy_ble_probe.py with sudo."
+                    )
             except TransportError as exc:
                 self.Notices["transport"] = str(exc)
                 LOGGER.error("transport: %s", exc)
