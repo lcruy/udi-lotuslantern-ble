@@ -168,7 +168,20 @@ def cancel_le_connect(hci_node: str) -> Optional[str]:
     controller, and every later attempt -- ours or hccontrol's -- fails with
     "Command disallowed". Harmless when nothing is pending.
     """
-    return hci_send_command(hci_node, OGF_LE, OCF_LE_CREATE_CONNECTION_CANCEL)
+    if os.geteuid() == 0:
+        return hci_send_command(hci_node, OGF_LE, OCF_LE_CREATE_CONNECTION_CANCEL)
+    # Not root (PG3 runs node servers as admin): use the root-owned helper
+    # that tools/install_privileges.sh installs and allows through sudo.
+    if not os.path.exists(CANCEL_HELPER):
+        return f"cannot cancel a pending LE connection without root -- {PRIVILEGE_HINT}"
+    try:
+        p = subprocess.run(_privileged([CANCEL_HELPER, hci_node]), capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"cancel helper failed: {exc}"
+    if p.returncode != 0:
+        return f"cancel helper failed: {(p.stdout + p.stderr).strip()} -- {PRIVILEGE_HINT}"
+    return None
 
 
 # ── one connection ────────────────────────────────────────────────────────────
@@ -319,23 +332,94 @@ class AttLink:
 
 # ── scanning via hccontrol ────────────────────────────────────────────────────
 
-def _hccontrol_cmd() -> List[str]:
-    exe = shutil.which("hccontrol") or "/usr/sbin/hccontrol"
+HCCONTROL = "/usr/sbin/hccontrol"
+#: Root-owned copy of tools/hci_cancel.py, put there by tools/install_privileges.sh.
+CANCEL_HELPER = "/usr/local/libexec/lotuslantern-hci-cancel"
+PRIVILEGE_HINT = ("run 'sudo sh tools/install_privileges.sh' once on the eisy "
+                  "so the node server may use hccontrol")
+
+
+def _sudo() -> Optional[str]:
+    """Find sudo even under PG3's minimal PATH (FreeBSD keeps it in /usr/local/bin)."""
+    for candidate in (shutil.which("sudo"), "/usr/local/bin/sudo", "/usr/bin/sudo"):
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _privileged(cmd: List[str]) -> List[str]:
+    """Prefix a command with non-interactive sudo unless we are already root."""
     if os.geteuid() == 0:
-        return [exe]
-    sudo = shutil.which("sudo")
-    return [sudo, "-n", exe] if sudo else [exe]
+        return cmd
+    sudo = _sudo()
+    return [sudo, "-n"] + cmd if sudo else cmd
 
 
-def _line_buffered(cmd: List[str]) -> List[str]:
-    """Make hccontrol flush each line.
+def _hccontrol_cmd() -> List[str]:
+    exe = HCCONTROL if os.path.exists(HCCONTROL) else (shutil.which("hccontrol") or HCCONTROL)
+    return _privileged([exe])
 
-    Writing to a pipe, hccontrol's stdout is block-buffered, so a scan cut off
-    by our timeout used to lose everything it had found. FreeBSD ships
-    stdbuf(1) in base for exactly this.
+
+def _run_scan(cmd: List[str], seconds: float) -> Tuple[str, str]:
+    """Run hccontrol le_scan for `seconds`, keeping everything it printed.
+
+    hccontrol block-buffers stdout into a pipe, so a scan we cut short lost
+    its results. Giving it a pseudo-terminal makes stdio line-buffered. (The
+    stdbuf trick doesn't survive sudo, which strips LD_PRELOAD, and allowing
+    stdbuf through sudo would be as good as full root.)
     """
-    stdbuf = shutil.which("stdbuf") or ("/usr/bin/stdbuf" if os.path.exists("/usr/bin/stdbuf") else None)
-    return [stdbuf, "-o", "L"] + cmd if stdbuf else cmd
+    import pty
+
+    master, slave = pty.openpty()
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.PIPE,
+                                start_new_session=True)
+    except FileNotFoundError as exc:
+        os.close(master)
+        os.close(slave)
+        raise TransportError("hccontrol not found on this system") from exc
+    os.close(slave)
+    chunks = []
+    deadline = time.monotonic() + seconds
+    try:
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            ready, _, _ = select.select([master], [], [], min(left, 0.5))
+            if ready:
+                try:
+                    data = os.read(master, 4096)
+                except OSError:          # EIO: hccontrol exited, pty closed
+                    break
+                if not data:
+                    break
+                chunks.append(data)
+            elif proc.poll() is not None:
+                break
+    finally:
+        if proc.poll() is None:
+            FreeBSDBleTransport._signal_group(proc, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                FreeBSDBleTransport._signal_group(proc, signal.SIGKILL)
+                proc.wait()
+        # drain anything printed while stopping
+        while True:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if not ready:
+                break
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+        os.close(master)
+    err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+    return b"".join(chunks).decode(errors="replace").replace("\r\n", "\n"), err
 
 
 def enable_le(hci_node: str) -> List[str]:
@@ -358,6 +442,8 @@ def enable_le(hci_node: str) -> List[str]:
             continue
         text = (p.stdout + p.stderr).strip()
         if p.returncode != 0 or "Status:" in text or "ermission" in text:
+            if "password is required" in text or "not permitted" in text or "ermission" in text:
+                text += " -- " + PRIVILEGE_HINT
             problems.append(f"{args[0]}: {text or 'exit ' + str(p.returncode)}")
     return problems
 
@@ -423,26 +509,9 @@ class FreeBSDBleTransport:
         base = _hccontrol_cmd() + ["-n", self.hci_node]
         # le_scan counts HCI events rather than seconds; ask for plenty and
         # stop it ourselves after `timeout` seconds.
-        try:
-            proc = subprocess.Popen(_line_buffered(base + ["le_scan", "-v", "-n", "1000"]),
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                    start_new_session=True)
-        except FileNotFoundError as exc:
-            raise TransportError("hccontrol not found on this system") from exc
-        try:
-            out, err = proc.communicate(timeout=max(3.0, float(timeout)))
-        except subprocess.TimeoutExpired:
-            # Stop the whole group (sudo / stdbuf / hccontrol), or a surviving
-            # child keeps the pipe open and we wait forever.
-            self._signal_group(proc, signal.SIGTERM)
-            try:
-                out, err = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._signal_group(proc, signal.SIGKILL)
-                out, err = proc.communicate()
-        finally:
-            # A stopped le_scan leaves the controller scanning; switch it off.
-            subprocess.run(base + ["le_set_scan_enable", "disable"], capture_output=True, timeout=10)
+        out, err = _run_scan(base + ["le_scan", "-v", "-n", "1000"], max(3.0, float(timeout)))
+        # A stopped le_scan leaves the controller scanning; switch it off.
+        subprocess.run(base + ["le_set_scan_enable", "disable"], capture_output=True, timeout=10)
         if not out.strip() and err.strip():
             raise TransportError(
                 "hccontrol le_scan failed: " + err.strip()

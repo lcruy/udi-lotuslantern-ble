@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.4 — 2026-10-11
+
+First working control from a real eisy (FreeBSD 14.3, Intel BT 5.2): blink
+test passed at ~30 ft; fails at ~35 ft.
+
+- **Runs without root.** PG3 runs the node server as `admin`. New one-time
+  `tools/install_privileges.sh` adds a sudo rule for exactly `hccontrol` and a
+  root-owned cancel helper (`tools/hci_cancel.py`, installed to
+  `/usr/local/libexec/lotuslantern-hci-cancel`).
+- **sudo is found under PG3's minimal PATH** (`/usr/local/bin/sudo`).
+  Previously hccontrol ran without sudo and LE could not be switched on.
+- Scan output is captured through a pseudo-terminal instead of stdbuf, which
+  sudo would defeat.
+- The PG3 notice now points to the one-time fix.
+- Docs: privilege setup and measured range.
+
 ## 0.0.3 — 2026-10-11
 
 - **Stuck connection attempts are now cancelled.** When a connect timed out,

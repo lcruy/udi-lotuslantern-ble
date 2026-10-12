@@ -1,6 +1,6 @@
 # udi-lotuslantern-ble — Lotus Lantern node server for eisy (PG3x)
 
-Version 0.0.3
+Version 0.0.4
 
 Control **BLEDOM / ELK-BLEDOM** Bluetooth LED strips — the ones set up with the
 **Lotus Lantern** phone app — from an eisy or Polisy: on/off, dimming, RGB
@@ -70,8 +70,25 @@ If a connection attempt ever gets stuck ("Command disallowed" from
 `hccontrol le_connect`), clear it with
 `sudo python3 tools/eisy_ble_probe.py --cancel`.
 
-Discovery from the admin console runs `hccontrol le_scan`, which needs root.
-If it can't run from PG3, add strips by MAC instead (see below).
+### One-time privilege setup
+
+PG3 runs node servers as `admin`, not root, but switching LE on (needed after
+every reboot), scanning and cancelling a stuck connection attempt all need
+root. Run this once:
+
+```bash
+sudo sh tools/install_privileges.sh
+```
+
+It installs a sudo rule letting `admin` run exactly two root-owned programs
+without a password: `/usr/sbin/hccontrol` and
+`/usr/local/libexec/lotuslantern-hci-cancel` (a copy of `tools/hci_cancel.py`).
+Nothing in the node server's own folder runs as root.
+`--remove` undoes it.
+
+**Range:** about 30 ft indoors from the eisy's internal adapter, measured on
+a real eisy. Use the bridge (or a USB adapter on an extension cable, set via
+`hci_node`) for strips further away.
 
 ## 1. (Optional) Set up the bridge (Raspberry Pi example)
 

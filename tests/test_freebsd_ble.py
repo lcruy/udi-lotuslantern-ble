@@ -187,6 +187,52 @@ esac
         fb.cancel_le_connect = real_cancel
 
 
+def test_scan_survives_block_buffering():
+    """A fake hccontrol that block-buffers like C stdio does into a pipe.
+
+    Python, like C, line-buffers only when stdout is a terminal; the pty in
+    _run_scan must make the result visible before the scan is cut short.
+    """
+    import sys as _sys
+    import tempfile
+    import time as _t
+    import transports.freebsd_ble as fb
+
+    d = tempfile.mkdtemp()
+    script = os.path.join(d, "fake_hccontrol.py")
+    with open(script, "w") as f:
+        f.write("import sys, time\n"
+                "print('Scan 1')\nprint('\\tBD_ADDR be:96:4e:00:12:5c ')\n"
+                "print('\\tAddress type: Public')\nprint('\\tComplete local name: ELK-BLEDOM')\n"
+                "time.sleep(30)\n")
+    start = _t.time()
+    out, err = fb._run_scan([_sys.executable, script], 2)
+    assert _t.time() - start < 10
+    assert [x["address"] for x in fb.parse_le_scan(out)] == ["BE:96:4E:00:12:5C"]
+
+
+def test_non_root_uses_sudo_and_helper():
+    import transports.freebsd_ble as fb
+    real = (os.geteuid, fb._sudo, fb.subprocess.run, fb.os.path.exists)
+    seen = []
+
+    class R:
+        returncode, stdout, stderr = 0, "", ""
+
+    os.geteuid = lambda: 1001
+    fb._sudo = lambda: "/usr/local/bin/sudo"
+    fb.subprocess.run = lambda cmd, **kw: (seen.append(cmd), R())[1]
+    fb.os.path.exists = lambda p: True
+    try:
+        assert fb._hccontrol_cmd() == ["/usr/local/bin/sudo", "-n", fb.HCCONTROL]
+        assert fb.cancel_le_connect("ubt0hci") is None
+        assert seen[-1] == ["/usr/local/bin/sudo", "-n", fb.CANCEL_HELPER, "ubt0hci"]
+        fb.os.path.exists = lambda p: False if p == fb.CANCEL_HELPER else True
+        assert "install_privileges" in fb.cancel_le_connect("ubt0hci")
+    finally:
+        os.geteuid, fb._sudo, fb.subprocess.run, fb.os.path.exists = real
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

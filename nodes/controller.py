@@ -135,7 +135,8 @@ class LotusController(udi_interface.Node):
                     LOGGER.warning("Bluetooth LE setup: %s", problem)
                     self.Notices["le"] = (
                         "Could not switch on Bluetooth LE on the eisy (" + problem + "). "
-                        "Scanning and connecting need it; run tools/eisy_ble_probe.py with sudo."
+                        "One-time fix over SSH, in the node server folder: "
+                        "<b>sudo sh tools/install_privileges.sh</b>, then restart the node server."
                     )
             except TransportError as exc:
                 self.Notices["transport"] = str(exc)

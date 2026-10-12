@@ -9,7 +9,7 @@
     "shortPoll": "60",
     "longPoll": "600",
     "logLevel": "INFO",
-    "profile_version": "0.0.3",
+    "profile_version": "0.0.4",
     "customParams": {
         "transport": "native",
         "hci_node": "ubt0hci",
@@ -23,7 +23,7 @@
         {
             "title": "udi-lotuslantern-ble",
             "author": "lcruywagen",
-            "version": "0.0.3",
+            "version": "0.0.4",
             "date": "October 2026",
             "source": "https://github.com/YOUR-GITHUB/udi-lotuslantern-ble",
             "license": "MIT"

@@ -15,10 +15,20 @@ range of the eisy (roughly 10 m indoors). For strips further away, run
 | `scan_seconds` | How long **Discover Strips** listens for (default 8) |
 | `auto_add` | `true` adds every strip found; `false` lists them in a notice instead |
 
+## One-time setup (native)
+
+PG3 runs node servers as `admin`, but switching Bluetooth LE on, scanning and
+clearing a stuck connection need root. Once, over SSH, in the node server
+folder:
+
+    sudo sh tools/install_privileges.sh
+
+It lets `admin` run only FreeBSD's `hccontrol` and a small root-owned helper
+without a password. Undo with `sudo sh tools/install_privileges.sh --remove`.
+
 ## Adding strips
 
-* Press **Discover Strips** on the Lotus Lantern node in the admin console
-  (native scanning needs root; if it fails, use the MAC method), or
+* Press **Discover Strips** on the Lotus Lantern node in the admin console, or
 * add a parameter whose **key is the strip's MAC address** and whose value is
   its name, e.g. `BE:60:65:12:34:56` = `Kitchen Cabinets`.
 
@@ -27,6 +37,8 @@ range of the eisy (roughly 10 m indoors). For strips further away, run
 * **Close the Lotus Lantern phone app.** The controller accepts one Bluetooth
   connection at a time. The node server lets go after 60 s idle so the app can
   connect again.
+* **Range** from the eisy's internal adapter is about 30 ft indoors. Use the
+  bridge for strips further away.
 * The strip never reports its state. The node shows what was last delivered;
   if someone uses the remote or the app, run **Resend State** (or a program)
   to put it back.
