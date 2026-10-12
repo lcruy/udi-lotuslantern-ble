@@ -1,0 +1,35 @@
+<editors>
+    <editor id="LBOOL">
+        <range uom="2" subset="0,1" />
+    </editor>
+    <editor id="LCOUNT">
+        <range uom="56" min="0" max="999" prec="0" />
+    </editor>
+    <editor id="LBRIDGE">
+        <range uom="25" subset="0-4" nls="BRIDGE" />
+    </editor>
+    <editor id="LDIMMER">
+        <range uom="51" min="0" max="100" step="1" prec="0" />
+    </editor>
+    <editor id="LPCT">
+        <range uom="51" min="0" max="100" step="1" prec="0" />
+    </editor>
+    <editor id="LPCTMIN1">
+        <range uom="51" min="1" max="100" step="1" prec="0" />
+    </editor>
+    <editor id="LRGB">
+        <range uom="100" min="0" max="255" prec="0" />
+    </editor>
+    <editor id="LMODE">
+        <range uom="25" subset="0-29" nls="MODE" />
+    </editor>
+    <editor id="LPRESET">
+        <range uom="25" subset="0-11" nls="PRESET" />
+    </editor>
+    <editor id="LKELVIN">
+        <range uom="26" min="1500" max="9000" step="100" prec="0" />
+    </editor>
+    <editor id="LLINK">
+        <range uom="25" subset="0-2" nls="LINK" />
+    </editor>
+</editors>

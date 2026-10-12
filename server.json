@@ -1,0 +1,38 @@
+{
+    "name": "udi-lotuslantern-ble",
+    "docs": "https://github.com/YOUR-GITHUB/udi-lotuslantern-ble",
+    "type": "python3",
+    "executable": "udi-lotuslantern-ble.py",
+    "install": "install.sh",
+    "description": "Control BLEDOM / ELK-BLEDOM (Lotus Lantern app) Bluetooth LED strips from eisy / Polisy using the built-in Bluetooth, or a Raspberry Pi BLE bridge for strips out of range.",
+    "notice": "Uses the eisy Bluetooth adapter directly (transport=native). Close the Lotus Lantern phone app: strips accept one connection at a time.",
+    "shortPoll": "60",
+    "longPoll": "600",
+    "logLevel": "INFO",
+    "profile_version": "0.0.1",
+    "customParams": {
+        "transport": "native",
+        "hci_node": "ubt0hci",
+        "addr_type": "auto",
+        "bridge_url": "http://192.168.1.50:8765",
+        "bridge_token": "",
+        "scan_seconds": "8",
+        "auto_add": "true"
+    },
+    "credits": [
+        {
+            "title": "udi-lotuslantern-ble",
+            "author": "lcruywagen",
+            "version": "0.0.1",
+            "date": "October 2026",
+            "source": "https://github.com/YOUR-GITHUB/udi-lotuslantern-ble",
+            "license": "MIT"
+        },
+        {
+            "title": "BLEDOM protocol tables (lotus-led-python)",
+            "author": "Alex Melan",
+            "source": "https://github.com/AlexMelanFromRingo/lotus-led-python",
+            "license": "MIT"
+        }
+    ]
+}

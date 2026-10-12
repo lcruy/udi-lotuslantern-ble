@@ -1,0 +1,19 @@
+# systemd unit for the Lotus BLE bridge on a Raspberry Pi.
+#   sudo cp lotus-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lotus-bridge
+# Edit User=, the path, and the token first.
+[Unit]
+Description=Lotus Lantern BLE bridge
+After=bluetooth.target network-online.target
+Wants=bluetooth.target network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/lotus-bridge
+ExecStart=/home/pi/lotus-bridge/venv/bin/python /home/pi/lotus-bridge/lotus_bridge.py --port 8765 --idle 60
+Environment=LOTUS_BRIDGE_TOKEN=change-me
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

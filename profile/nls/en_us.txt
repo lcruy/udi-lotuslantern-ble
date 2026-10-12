@@ -1,0 +1,94 @@
+# ── Controller ────────────────────────────────────────────────
+ND-lotusctl-NAME = Lotus Lantern
+ND-lotusctl-ICON = GenericCtl
+ST-lctl-ST-NAME = Node Server Online
+ST-lctl-GV0-NAME = Strips
+ST-lctl-GV1-NAME = Radio
+CMD-lctl-QUERY-NAME = Query
+CMD-lctl-DISCOVER-NAME = Discover Strips
+CMD-lctl-ALLON-NAME = All On
+CMD-lctl-ALLOFF-NAME = All Off
+
+BRIDGE-0 = Not configured
+BRIDGE-1 = Online
+BRIDGE-2 = Unreachable
+BRIDGE-3 = Local Bluetooth
+BRIDGE-4 = eisy Bluetooth
+
+# ── Strip ─────────────────────────────────────────────────────
+ND-lotusled-NAME = Lotus LED Strip
+ND-lotusled-ICON = LightDimmer
+ST-lled-ST-NAME = Status
+ST-lled-GV1-NAME = Red
+ST-lled-GV2-NAME = Green
+ST-lled-GV3-NAME = Blue
+ST-lled-GV4-NAME = Effect
+ST-lled-GV5-NAME = Effect Speed
+ST-lled-GV6-NAME = Brightness
+ST-lled-GV7-NAME = Link
+CMD-lled-DON-NAME = On
+CMD-lled-DOF-NAME = Off
+CMD-lled-DFON-NAME = Fast On
+CMD-lled-DFOF-NAME = Fast Off
+CMD-lled-BRT-NAME = Brighten
+CMD-lled-DIM-NAME = Dim
+CMD-lled-SETBRT-NAME = Set Brightness
+CMD-lled-SETCOLOR-NAME = Set Color (RGB)
+CMD-lled-SETPRESET-NAME = Set Color Preset
+CMD-lled-SETCT-NAME = Set White Temperature
+CMD-lled-SETMODE-NAME = Set Effect
+CMD-lled-SETSPEED-NAME = Set Effect Speed
+CMD-lled-RESEND-NAME = Resend State
+CMD-lled-QUERY-NAME = Query
+
+CMDP-R-NAME = Red
+CMDP-G-NAME = Green
+CMDP-B-NAME = Blue
+
+LINK-0 = Unknown
+LINK-1 = OK
+LINK-2 = Error
+
+MODE-0 = Solid Color
+MODE-1 = Static Red
+MODE-2 = Static Blue
+MODE-3 = Static Green
+MODE-4 = Static Cyan
+MODE-5 = Static Yellow
+MODE-6 = Static Purple
+MODE-7 = Static White
+MODE-8 = Three Color Jumping Change
+MODE-9 = Seven Color Jumping Change
+MODE-10 = Three Color Cross Fade
+MODE-11 = Seven Color Cross Fade
+MODE-12 = Red Gradual Change
+MODE-13 = Green Gradual Change
+MODE-14 = Blue Gradual Change
+MODE-15 = Yellow Gradual Change
+MODE-16 = Cyan Gradual Change
+MODE-17 = Purple Gradual Change
+MODE-18 = White Gradual Change
+MODE-19 = Red Green Cross Fade
+MODE-20 = Red Blue Cross Fade
+MODE-21 = Green Blue Cross Fade
+MODE-22 = Seven Color Strobe Flash
+MODE-23 = Red Strobe Flash
+MODE-24 = Green Strobe Flash
+MODE-25 = Blue Strobe Flash
+MODE-26 = Yellow Strobe Flash
+MODE-27 = Cyan Strobe Flash
+MODE-28 = Purple Strobe Flash
+MODE-29 = White Strobe Flash
+
+PRESET-0 = Red
+PRESET-1 = Orange
+PRESET-2 = Yellow
+PRESET-3 = Green
+PRESET-4 = Cyan
+PRESET-5 = Blue
+PRESET-6 = Purple
+PRESET-7 = Magenta
+PRESET-8 = Pink
+PRESET-9 = Warm White
+PRESET-10 = White
+PRESET-11 = Cool White
